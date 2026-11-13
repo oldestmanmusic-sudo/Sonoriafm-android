@@ -206,6 +206,20 @@ class MainActivity : Activity() {
             background = rounded(purple, 12)
             setOnClickListener { doLogin() }
         }
+        val googleButton = Button(this).apply {
+            text = "Entrar con Google"
+            setTextColor(Color.parseColor("#1F1F1F"))
+            background = rounded(Color.WHITE, 12)
+            setOnClickListener {
+                val from = Uri.encode("https://sonoriafm.com/app-login")
+                startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://sonoriafm.com/api/apps/auth/login?app_id=$APP_ID&from_url=$from")
+                    )
+                )
+            }
+        }
         val cancel = TextView(this).apply {
             text = "Cancelar"
             textSize = 14f
@@ -221,6 +235,9 @@ class MainActivity : Activity() {
         loginPanel.addView(passInput)
         loginPanel.addView(loginMsg)
         loginPanel.addView(loginSubmit)
+        loginPanel.addView(googleButton, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
         loginPanel.addView(cancel)
 
         updateButton = Button(this).apply {
@@ -259,8 +276,30 @@ class MainActivity : Activity() {
             addView(root)
         })
         coverView.setImageBitmap(null)
+        handleLoginLink(intent)
         checkForUpdate()
         if (token != null) loadLikedIds()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLoginLink(intent)
+    }
+
+    /** Vuelta del inicio de sesión con Google: guarda la sesión y carga tus «me gusta». */
+    private fun handleLoginLink(i: Intent?) {
+        val data = i?.data ?: return
+        if (data.scheme != "sonoriafm" || data.host != "login") return
+        val t = data.getQueryParameter("token")
+        if (t.isNullOrEmpty()) return
+        token = t
+        prefs.edit().putString("token", t).apply()
+        loginPanel.visibility = View.GONE
+        Toast.makeText(this, "Sesión iniciada", Toast.LENGTH_SHORT).show()
+        val again = pendingLike
+        pendingLike = false
+        loadLikedIds { if (again) onLikeClicked() }
     }
 
     private fun circleButton(text: String, sizeDp: Int, color: Int, sp: Float) = TextView(this).apply {
