@@ -215,7 +215,7 @@ class MainActivity : Activity() {
                 startActivity(
                     Intent(
                         Intent.ACTION_VIEW,
-                        Uri.parse("https://sonoriafm.com/api/apps/auth/login?app_id=$APP_ID&from_url=$from")
+                        Uri.parse("https://base44.app/api/apps/auth/login?app_id=$APP_ID&from_url=$from")
                     )
                 )
             }
