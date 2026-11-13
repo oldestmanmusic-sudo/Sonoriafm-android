@@ -2,6 +2,7 @@ package com.sonoriafm.radio
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -32,6 +33,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import org.json.JSONObject
@@ -58,6 +60,9 @@ class MainActivity : Activity() {
     private lateinit var playButton: TextView
     private lateinit var likeButton: TextView
     private lateinit var shareButton: TextView
+    private lateinit var nextView: TextView
+    private lateinit var sleepView: TextView
+    private var lastListedId: String? = null
     private lateinit var updateButton: Button
     private lateinit var loginPanel: LinearLayout
     private lateinit var emailInput: EditText
@@ -152,6 +157,23 @@ class MainActivity : Activity() {
         controls.addView(playButton, LinearLayout.LayoutParams(dp(76), dp(76)))
         controls.addView(shareButton, LinearLayout.LayoutParams(dp(60), dp(60)).apply { leftMargin = dp(24) })
 
+        sleepView = TextView(this).apply {
+            text = "☾  Temporizador para dormir"
+            textSize = 14f
+            setTextColor(grey)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(16), 0, dp(4))
+            setOnClickListener { onSleepClicked() }
+        }
+        nextView = TextView(this).apply {
+            textSize = 14f
+            setTextColor(grey)
+            setLineSpacing(dp(4).toFloat(), 1f)
+            background = rounded(card, 16)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            visibility = View.GONE
+        }
+
         // Panel para iniciar sesión (hace falta para dar "me gusta", igual que en la web).
         loginPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -225,6 +247,8 @@ class MainActivity : Activity() {
         root.addView(titleView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(22) })
         root.addView(subtitleView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(4) })
         root.addView(controls, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(22) })
+        root.addView(sleepView, LinearLayout.LayoutParams(match, wrap))
+        root.addView(nextView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(12) })
         root.addView(loginPanel, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(20) })
         root.addView(updateButton, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(18) })
         root.addView(web)
@@ -316,6 +340,41 @@ class MainActivity : Activity() {
         return id.substringBefore("@")
     }
 
+    private fun onSleepClicked() {
+        val c = controller ?: return
+        val options = arrayOf("15 minutos", "30 minutos", "1 hora", "Desactivar")
+        val minutes = intArrayOf(15, 30, 60, 0)
+        AlertDialog.Builder(this)
+            .setTitle("Apagar la radio en…")
+            .setItems(options) { _, which ->
+                val args = Bundle().apply { putInt("min", minutes[which]) }
+                c.sendCustomCommand(SessionCommand(PlaybackService.CMD_SLEEP, Bundle.EMPTY), args)
+                sleepView.text = if (minutes[which] > 0) "☾  Se apagará en ${options[which]}" else "☾  Temporizador para dormir"
+            }
+            .show()
+    }
+
+    /** Las próximas canciones de la emisión. */
+    private fun loadUpcoming() {
+        thread {
+            try {
+                val s = RadioApi.fetch(5)
+                val now = System.currentTimeMillis() + s.clockOffsetMs
+                val next = s.tracks.filter { it.startsAt > now }.take(3)
+                runOnUiThread {
+                    if (next.isEmpty()) {
+                        nextView.visibility = View.GONE
+                    } else {
+                        nextView.text = "A continuación\n" + next.joinToString("\n") { "♪  ${it.title} · ${it.artist}" }
+                        nextView.visibility = View.VISIBLE
+                    }
+                }
+            } catch (e: Exception) {
+                // Sin conexión: no se muestra la lista.
+            }
+        }
+    }
+
     private fun onShareClicked() {
         val id = currentTrackId()
         if (id == null) {
@@ -358,6 +417,10 @@ class MainActivity : Activity() {
             }
         }
         val id = currentTrackId()
+        if (id != null && id != lastListedId) {
+            lastListedId = id
+            loadUpcoming()
+        }
         val liked = id != null && likedIds.contains(id)
         val n = if (id != null) likeCounts[id] else null
         likeButton.text = (if (liked) "♥" else "♡") + (if (n != null && n > 0) " $n" else "")

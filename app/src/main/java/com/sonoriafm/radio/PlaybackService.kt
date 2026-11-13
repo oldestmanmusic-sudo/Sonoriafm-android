@@ -48,6 +48,7 @@ class PlaybackService : MediaLibraryService() {
     private var resyncing = false
     private var cutMediaId: String? = null
     private val likedIds = HashSet<String>()
+    private val sleepRunnable = Runnable { player.pause() }
 
     private fun serverNow() = System.currentTimeMillis() + clockOffset
 
@@ -213,6 +214,7 @@ class PlaybackService : MediaLibraryService() {
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
                 .buildUpon()
                 .add(SessionCommand(CMD_LIKE, Bundle.EMPTY))
+                .add(SessionCommand(CMD_SLEEP, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(commands)
@@ -227,6 +229,12 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<SessionResult> {
             if (customCommand.customAction == CMD_LIKE) {
                 likeCurrent()
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            if (customCommand.customAction == CMD_SLEEP) {
+                val minutes = args.getInt("min", 0)
+                main.removeCallbacks(sleepRunnable)
+                if (minutes > 0) main.postDelayed(sleepRunnable, minutes * 60_000L)
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
             return super.onCustomCommand(session, controller, customCommand, args)
@@ -420,6 +428,7 @@ class PlaybackService : MediaLibraryService() {
         private const val ROOT_ID = "root"
         const val LIVE_ID = "live"
         private const val CMD_LIKE = "com.sonoriafm.radio.LIKE"
+        const val CMD_SLEEP = "com.sonoriafm.radio.SLEEP"
         private const val SYNC_EVERY_MS = 30_000L
         private const val GRACE_AFTER_TRANSITION_MS = 25_000L
         private const val MAX_DRIFT_MS = 25_000L
