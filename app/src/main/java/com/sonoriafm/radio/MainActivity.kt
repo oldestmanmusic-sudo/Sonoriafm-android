@@ -22,6 +22,7 @@ import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -96,7 +97,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(28), dp(24), dp(24))
+            setPadding(dp(24), dp(16), dp(24), dp(12))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
                 intArrayOf(Color.parseColor("#2A1250"), bg, bg)
@@ -131,7 +132,7 @@ class MainActivity : Activity() {
 
         titleView = TextView(this).apply {
             text = "Pulsa play para escuchar"
-            textSize = 22f
+            textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -162,7 +163,7 @@ class MainActivity : Activity() {
             textSize = 14f
             setTextColor(grey)
             gravity = Gravity.CENTER
-            setPadding(0, dp(16), 0, dp(4))
+            setPadding(0, dp(10), 0, dp(2))
             setOnClickListener { onSleepClicked() }
         }
         nextView = TextView(this).apply {
@@ -170,7 +171,7 @@ class MainActivity : Activity() {
             setTextColor(grey)
             setLineSpacing(dp(4).toFloat(), 1f)
             background = rounded(card, 16)
-            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setPadding(dp(16), dp(8), dp(16), dp(8))
             visibility = View.GONE
         }
 
@@ -250,7 +251,7 @@ class MainActivity : Activity() {
             textSize = 14f
             setTextColor(grey)
             gravity = Gravity.CENTER
-            setPadding(0, dp(18), 0, dp(6))
+            setPadding(0, dp(8), 0, dp(2))
             setOnClickListener {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://sonoriafm.com")))
             }
@@ -258,14 +259,26 @@ class MainActivity : Activity() {
 
         val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
         val match = ViewGroup.LayoutParams.MATCH_PARENT
-        root.addView(brand, LinearLayout.LayoutParams(dp(210), wrap))
-        root.addView(live, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(10) })
-        root.addView(coverView, LinearLayout.LayoutParams(dp(250), dp(250)).apply { topMargin = dp(22) })
-        root.addView(titleView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(22) })
+        root.addView(brand, LinearLayout.LayoutParams(dp(130), wrap))
+        root.addView(live, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(4) })
+        // La carátula ocupa el hueco que sobra y se ajusta sola para que todo quepa sin hacer scroll.
+        val coverBox = FrameLayout(this).apply { minimumHeight = dp(110) }
+        coverBox.addView(coverView, FrameLayout.LayoutParams(dp(110), dp(110), Gravity.CENTER))
+        coverBox.addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
+            val size = minOf(r - l, b - t - dp(8)).coerceAtLeast(dp(110))
+            val lp = coverView.layoutParams
+            if (lp.width != size || lp.height != size) {
+                lp.width = size
+                lp.height = size
+                coverView.layoutParams = lp
+            }
+        }
+        root.addView(coverBox, LinearLayout.LayoutParams(match, 0, 1f).apply { topMargin = dp(12) })
+        root.addView(titleView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(8) })
         root.addView(subtitleView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(4) })
-        root.addView(controls, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(22) })
+        root.addView(controls, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(12) })
         root.addView(sleepView, LinearLayout.LayoutParams(match, wrap))
-        root.addView(nextView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(12) })
+        root.addView(nextView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(6) })
         root.addView(loginPanel, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(20) })
         root.addView(updateButton, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(18) })
         root.addView(web)
@@ -399,7 +412,7 @@ class MainActivity : Activity() {
             try {
                 val s = RadioApi.fetch(5)
                 val now = System.currentTimeMillis() + s.clockOffsetMs
-                val next = s.tracks.filter { it.startsAt > now }.take(3)
+                val next = s.tracks.filter { it.startsAt > now }.take(2)
                 runOnUiThread {
                     if (next.isEmpty()) {
                         nextView.visibility = View.GONE
