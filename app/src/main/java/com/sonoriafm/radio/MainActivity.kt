@@ -30,6 +30,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -265,7 +267,7 @@ class MainActivity : Activity() {
         val coverBox = FrameLayout(this).apply { minimumHeight = dp(110) }
         coverBox.addView(coverView, FrameLayout.LayoutParams(dp(110), dp(110), Gravity.CENTER))
         coverBox.addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
-            val size = minOf(r - l, b - t - dp(8)).coerceAtLeast(dp(110))
+            val size = minOf(r - l, b - t - dp(8), dp(250)).coerceAtLeast(dp(110))
             val lp = coverView.layoutParams
             if (lp.width != size || lp.height != size) {
                 lp.width = size
@@ -283,11 +285,18 @@ class MainActivity : Activity() {
         root.addView(updateButton, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(18) })
         root.addView(web)
 
-        setContentView(ScrollView(this).apply {
+        val scroll = ScrollView(this).apply {
             isFillViewport = true
             setBackgroundColor(bg)
             addView(root)
-        })
+        }
+        // Android dibuja la app bajo la barra de estado y los botones del móvil: se deja ese margen.
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            root.setPadding(dp(24) + bars.left, dp(12) + bars.top, dp(24) + bars.right, dp(12) + bars.bottom)
+            insets
+        }
+        setContentView(scroll)
         coverView.setImageBitmap(null)
         handleLoginLink(intent)
         checkForUpdate()
