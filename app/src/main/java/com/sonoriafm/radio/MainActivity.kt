@@ -57,6 +57,7 @@ class MainActivity : Activity() {
     private lateinit var subtitleView: TextView
     private lateinit var playButton: TextView
     private lateinit var likeButton: TextView
+    private lateinit var shareButton: TextView
     private lateinit var updateButton: Button
     private lateinit var loginPanel: LinearLayout
     private lateinit var emailInput: EditText
@@ -141,12 +142,15 @@ class MainActivity : Activity() {
         playButton = circleButton("▶", 76, purple, 30f).apply { setOnClickListener { onPlayClicked() } }
         likeButton = circleButton("♡", 60, card, 26f).apply { setOnClickListener { onLikeClicked() } }
 
+        shareButton = circleButton("⤴", 60, card, 24f).apply { setOnClickListener { onShareClicked() } }
+
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
         controls.addView(likeButton, LinearLayout.LayoutParams(dp(60), dp(60)).apply { rightMargin = dp(24) })
         controls.addView(playButton, LinearLayout.LayoutParams(dp(76), dp(76)))
+        controls.addView(shareButton, LinearLayout.LayoutParams(dp(60), dp(60)).apply { leftMargin = dp(24) })
 
         // Panel para iniciar sesión (hace falta para dar "me gusta", igual que en la web).
         loginPanel = LinearLayout(this).apply {
@@ -310,6 +314,26 @@ class MainActivity : Activity() {
         val id = controller?.currentMediaItem?.mediaId ?: return null
         if (id == PlaybackService.LIVE_ID) return null
         return id.substringBefore("@")
+    }
+
+    private fun onShareClicked() {
+        val id = currentTrackId()
+        if (id == null) {
+            Toast.makeText(this, "Pulsa play y espera a que suene una canción", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val md = controller?.mediaMetadata
+        val name = listOfNotNull(md?.title?.toString(), md?.artist?.toString()).joinToString(" - ")
+        val text = "Estoy escuchando $name en SONORIA FM 🎧 https://sonoriafm.com/cancion/$id"
+        startActivity(
+            Intent.createChooser(
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                },
+                "Compartir canción"
+            )
+        )
     }
 
     private fun refresh() {

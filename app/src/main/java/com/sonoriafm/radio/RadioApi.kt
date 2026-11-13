@@ -80,6 +80,25 @@ object RadioApi {
         }
     }
 
+    /** POST JSON a la app (funciones, login). Devuelve (código HTTP, texto). Bloquea: usar fuera del hilo principal. */
+    fun post(path: String, body: JSONObject, token: String?): Pair<Int, String> {
+        val conn = URL("https://base44.app/api/apps/6ace0c27732bbb0f4d7504e1/$path").openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 15_000
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            if (token != null) conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            return Pair(code, stream?.bufferedReader()?.use { it.readText() } ?: "")
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     /** "4:17" -> 257 segundos (0 si no se puede leer). */
     fun parseDuration(s: String): Long {
         val parts = s.split(":").map { it.trim().toLongOrNull() }

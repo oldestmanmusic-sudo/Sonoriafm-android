@@ -1,6 +1,8 @@
 package com.sonoriafm.radio
 
+import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.AudioAttributes
@@ -10,11 +12,15 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import org.json.JSONObject
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -41,6 +47,7 @@ class PlaybackService : MediaLibraryService() {
     private var appending = false
     private var resyncing = false
     private var cutMediaId: String? = null
+    private val likedIds = HashSet<String>()
 
     private fun serverNow() = System.currentTimeMillis() + clockOffset
 
@@ -61,6 +68,70 @@ class PlaybackService : MediaLibraryService() {
         player.addListener(playerListener)
         session = MediaLibrarySession.Builder(this, player, LibraryCallback()).build()
         main.postDelayed(syncCheck, SYNC_EVERY_MS)
+        loadLikedIds()
+        updateLikeButton()
+    }
+
+    // ---- "Me gusta" desde Android Auto: usa la sesión iniciada en la app del móvil ------------
+
+    private fun token(): String? =
+        getSharedPreferences("sonoria", Context.MODE_PRIVATE).getString("token", null)
+
+    private fun currentTrackId(): String? =
+        player.currentMediaItem?.mediaId?.substringBefore("@")?.takeIf { it != LIVE_ID && it != ROOT_ID }
+
+    private fun loadLikedIds() {
+        val t = token() ?: return
+        io.execute {
+            try {
+                val (code, text) = RadioApi.post("functions/likeTrack", JSONObject().put("action", "status"), t)
+                if (code in 200..299) {
+                    val arr = JSONObject(text).optJSONArray("likedIds")
+                    main.post {
+                        likedIds.clear()
+                        if (arr != null) for (i in 0 until arr.length()) likedIds.add(arr.getString(i))
+                        updateLikeButton()
+                    }
+                }
+            } catch (e: Exception) {
+                // Sin conexión: se vuelve a intentar al abrir la app.
+            }
+        }
+    }
+
+    /** El corazón solo aparece si ya has iniciado sesión en la app del móvil. */
+    private fun updateLikeButton() {
+        val s = session ?: return
+        if (token() == null) {
+            s.setCustomLayout(ImmutableList.of())
+            return
+        }
+        val id = currentTrackId()
+        val liked = id != null && likedIds.contains(id)
+        val button = CommandButton.Builder(
+            if (liked) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED
+        )
+            .setDisplayName("Me gusta")
+            .setSessionCommand(SessionCommand(CMD_LIKE, Bundle.EMPTY))
+            .build()
+        s.setCustomLayout(ImmutableList.of(button))
+    }
+
+    private fun likeCurrent() {
+        val t = token() ?: return
+        val id = currentTrackId() ?: return
+        if (likedIds.contains(id)) return
+        io.execute {
+            try {
+                val (code, _) = RadioApi.post("functions/likeTrack", JSONObject().put("trackId", id), t)
+                if (code in 200..299) main.post {
+                    likedIds.add(id)
+                    updateLikeButton()
+                }
+            } catch (e: Exception) {
+                // Sin conexión: no se cuenta.
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
@@ -135,6 +206,32 @@ class PlaybackService : MediaLibraryService() {
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
 
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
+            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+                .buildUpon()
+                .add(SessionCommand(CMD_LIKE, Bundle.EMPTY))
+                .build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(commands)
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle
+        ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction == CMD_LIKE) {
+                likeCurrent()
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            return super.onCustomCommand(session, controller, customCommand, args)
+        }
+
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
             browser: MediaSession.ControllerInfo,
@@ -191,6 +288,7 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             lastTransition = System.currentTimeMillis()
+            updateLikeButton()
             scheduleCut()
             trimPlayed()
             maybeAppend()
@@ -321,6 +419,7 @@ class PlaybackService : MediaLibraryService() {
     companion object {
         private const val ROOT_ID = "root"
         const val LIVE_ID = "live"
+        private const val CMD_LIKE = "com.sonoriafm.radio.LIKE"
         private const val SYNC_EVERY_MS = 30_000L
         private const val GRACE_AFTER_TRANSITION_MS = 25_000L
         private const val MAX_DRIFT_MS = 25_000L
