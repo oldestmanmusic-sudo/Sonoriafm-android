@@ -12,6 +12,13 @@ import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
+import androidx.core.content.FileProvider
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
+import kotlin.concurrent.thread
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -28,6 +35,7 @@ class MainActivity : Activity() {
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
     private lateinit var playButton: Button
+    private lateinit var updateButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +92,12 @@ class MainActivity : Activity() {
             }
         }
 
+        updateButton = Button(this).apply {
+            visibility = android.view.View.GONE
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#1FA45B"))
+        }
+
         root.addView(brand)
         root.addView(tagline)
         root.addView(titleView)
@@ -94,7 +108,88 @@ class MainActivity : Activity() {
         ).apply { topMargin = pad }
         root.addView(playButton, lp)
         root.addView(webButton, lp)
+        root.addView(updateButton, lp)
         setContentView(root)
+        checkForUpdate()
+    }
+
+    // ---- Actualizaciones: mira si hay una versión nueva publicada en GitHub ----------------------
+
+    private fun currentVersion(): Long =
+        packageManager.getPackageInfo(packageName, 0).longVersionCode
+
+    private fun checkForUpdate() {
+        thread {
+            try {
+                val conn = URL(RELEASE_URL).openConnection() as HttpURLConnection
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 15_000
+                conn.setRequestProperty("Accept", "application/vnd.github+json")
+                if (conn.responseCode !in 200..299) return@thread
+                val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                val latest = json.getString("tag_name").removePrefix("v").toLongOrNull() ?: return@thread
+                if (latest <= currentVersion()) return@thread
+                val assets = json.getJSONArray("assets")
+                var apkUrl: String? = null
+                for (i in 0 until assets.length()) {
+                    val a = assets.getJSONObject(i)
+                    if (a.getString("name").endsWith(".apk")) apkUrl = a.getString("browser_download_url")
+                }
+                val url = apkUrl ?: return@thread
+                runOnUiThread {
+                    updateButton.text = "Hay una versión nueva · Actualizar"
+                    updateButton.visibility = android.view.View.VISIBLE
+                    updateButton.setOnClickListener { downloadAndInstall(url) }
+                }
+            } catch (e: Exception) {
+                // Sin conexión o sin versión nueva: no pasa nada.
+            }
+        }
+    }
+
+    private fun downloadAndInstall(apkUrl: String) {
+        updateButton.isEnabled = false
+        updateButton.text = "Descargando…"
+        thread {
+            try {
+                val dir = File(cacheDir, "updates").apply { mkdirs() }
+                val file = File(dir, "sonoria-update.apk")
+                val conn = URL(apkUrl).openConnection() as HttpURLConnection
+                conn.connectTimeout = 15_000
+                conn.readTimeout = 60_000
+                conn.inputStream.use { input -> file.outputStream().use { input.copyTo(it) } }
+                runOnUiThread { installApk(file) }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    updateButton.isEnabled = true
+                    updateButton.text = "Error al descargar · Reintentar"
+                }
+            }
+        }
+    }
+
+    private fun installApk(file: File) {
+        if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+            Toast.makeText(this, "Permite instalar desde SONORIA FM y vuelve a pulsar Actualizar", Toast.LENGTH_LONG).show()
+            startActivity(
+                Intent(
+                    android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")
+                )
+            )
+            updateButton.isEnabled = true
+            updateButton.text = "Hay una versión nueva · Actualizar"
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        startActivity(
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        )
+        updateButton.isEnabled = true
+        updateButton.text = "Hay una versión nueva · Actualizar"
     }
 
     override fun onStart() {
@@ -148,5 +243,10 @@ class MainActivity : Activity() {
             titleView.text = t
             subtitleView.text = md.artist?.toString() ?: ""
         }
+    }
+
+    companion object {
+        private const val RELEASE_URL =
+            "https://api.github.com/repos/oldestmanmusic-sudo/sonoriafm-android/releases/latest"
     }
 }

@@ -13,13 +13,29 @@ android {
         applicationId = "com.sonoriafm.radio"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // El número de versión lo pone GitHub en cada compilación (-Pvc=N); la app lo usa para saber si hay una nueva.
+        val vc = (project.findProperty("vc") as String?)?.toIntOrNull() ?: 1
+        versionCode = vc
+        versionName = "1.$vc"
+    }
+
+    // Clave de firma fija: así cada versión nueva se instala encima de la anterior.
+    signingConfigs {
+        create("sonoria") {
+            storeFile = file("sonoria-release.keystore")
+            storePassword = "sonoria2026"
+            keyAlias = "sonoria"
+            keyPassword = "sonoria2026"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("sonoria")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("sonoria")
         }
     }
 
