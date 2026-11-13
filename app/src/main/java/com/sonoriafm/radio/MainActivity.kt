@@ -97,13 +97,10 @@ class MainActivity : Activity() {
             )
         }
 
-        val brand = TextView(this).apply {
-            text = "SONORIA FM"
-            textSize = 26f
-            typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.12f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
+        val brand = ImageView(this).apply {
+            setImageResource(R.drawable.logo_sonoria)
+            adjustViewBounds = true
+            contentDescription = "SONORIA FM"
         }
         val live = TextView(this).apply {
             text = "●  EN DIRECTO"
@@ -218,9 +215,9 @@ class MainActivity : Activity() {
 
         val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
         val match = ViewGroup.LayoutParams.MATCH_PARENT
-        root.addView(brand)
+        root.addView(brand, LinearLayout.LayoutParams(dp(210), wrap))
         root.addView(live, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(10) })
-        root.addView(coverView, LinearLayout.LayoutParams(dp(270), dp(270)).apply { topMargin = dp(26) })
+        root.addView(coverView, LinearLayout.LayoutParams(dp(250), dp(250)).apply { topMargin = dp(22) })
         root.addView(titleView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(22) })
         root.addView(subtitleView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(4) })
         root.addView(controls, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(22) })
