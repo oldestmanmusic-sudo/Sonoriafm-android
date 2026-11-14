@@ -150,7 +150,7 @@ class PlaybackService : MediaLibraryService() {
 
     // ---- Construcción de elementos -----------------------------------------------------------
 
-    private fun toMediaItem(t: ScheduledTrack): MediaItem =
+    private fun toMediaItem(t: ScheduledTrack, next: ScheduledTrack? = null): MediaItem =
         MediaItem.Builder()
             .setMediaId(t.mediaId)
             .setUri(t.audioUrl)
@@ -158,7 +158,7 @@ class PlaybackService : MediaLibraryService() {
                 MediaMetadata.Builder()
                     .setTitle(t.title)
                     .setArtist(t.artist)
-                    .setAlbumTitle("SONORIA FM")
+                    .setAlbumTitle(if (next != null) "Después: ${next.title} · ${next.artist}" else "SONORIA FM")
                     .setArtworkUri(Uri.parse(if (t.coverUrl.isEmpty()) RadioApi.DEFAULT_COVER else t.coverUrl))
                     .setIsPlayable(true)
                     .setIsBrowsable(false)
@@ -293,7 +293,7 @@ class PlaybackService : MediaLibraryService() {
                 try {
                     val s = RadioApi.fetch()
                     clockOffset = s.clockOffsetMs
-                    val items = s.tracks.map { toMediaItem(it) }
+                    val items = s.tracks.mapIndexed { i, t -> toMediaItem(t, s.tracks.getOrNull(i + 1)) }
                     result.set(
                         MediaSession.MediaItemsWithStartPosition(items, 0, startOffsetMs(s.tracks[0]))
                     )
@@ -350,7 +350,7 @@ class PlaybackService : MediaLibraryService() {
             try {
                 val s = RadioApi.fetch()
                 clockOffset = s.clockOffsetMs
-                val items = s.tracks.map { toMediaItem(it) }
+                val items = s.tracks.mapIndexed { i, t -> toMediaItem(t, s.tracks.getOrNull(i + 1)) }
                 val pos = startOffsetMs(s.tracks[0])
                 main.post {
                     player.setMediaItems(items, 0, pos)
@@ -425,7 +425,7 @@ class PlaybackService : MediaLibraryService() {
                 clockOffset = s.clockOffsetMs
                 val newItems = s.tracks
                     .filter { it.startsAt >= last.endsAt - 1000 }
-                    .map { toMediaItem(it) }
+                    .let { l -> l.mapIndexed { i, t -> toMediaItem(t, l.getOrNull(i + 1)) } }
                 main.post {
                     val n = player.mediaItemCount
                     if (n > 0 && player.getMediaItemAt(n - 1).mediaId == lastItem.mediaId && newItems.isNotEmpty()) {
