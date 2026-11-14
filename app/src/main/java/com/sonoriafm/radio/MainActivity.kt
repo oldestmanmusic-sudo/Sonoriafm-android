@@ -297,7 +297,9 @@ class MainActivity : Activity() {
             insets
         }
         setContentView(scroll)
-        coverView.setImageBitmap(null)
+        coverView.scaleType = ImageView.ScaleType.CENTER_INSIDE
+        coverView.setPadding(dp(28), dp(28), dp(28), dp(28))
+        coverView.setImageResource(R.drawable.logo_sonoria)
         handleLoginLink(intent)
         checkForUpdate()
         if (token != null) loadLikedIds()
@@ -471,7 +473,7 @@ class MainActivity : Activity() {
             thread {
                 try {
                     val bmp: Bitmap? = URL(art).openStream().use { BitmapFactory.decodeStream(it) }
-                    if (bmp != null && art == lastCover) runOnUiThread { coverView.setImageBitmap(bmp) }
+                    if (bmp != null && art == lastCover) runOnUiThread { coverView.setPadding(0, 0, 0, 0); coverView.scaleType = ImageView.ScaleType.CENTER_CROP; coverView.setImageBitmap(bmp) }
                 } catch (e: Exception) {
                     // Sin carátula: se queda el fondo.
                 }
