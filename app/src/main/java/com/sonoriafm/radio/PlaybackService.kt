@@ -207,7 +207,7 @@ class PlaybackService : MediaLibraryService() {
                         MediaMetadata.Builder()
                             .setTitle(o.optString("title", ""))
                             .setArtist(o.optString("artist", ""))
-                            .setAlbumTitle("Mis favoritas")
+                            .setAlbumTitle("Favoritos")
                             .setArtworkUri(Uri.parse(if (cover.isEmpty()) RadioApi.DEFAULT_COVER else cover))
                             .setIsPlayable(true)
                             .setIsBrowsable(false)
@@ -224,7 +224,20 @@ class PlaybackService : MediaLibraryService() {
             .setMediaId(FAV_ID)
             .setMediaMetadata(
                 MediaMetadata.Builder()
-                    .setTitle("Mis favoritas")
+                    .setTitle("Favoritos")
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                    .build()
+            )
+            .build()
+
+    private fun liveFolder(): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(LIVE_FOLDER_ID)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle("Radio online 24 h")
                     .setIsBrowsable(true)
                     .setIsPlayable(false)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
@@ -337,7 +350,11 @@ class PlaybackService : MediaLibraryService() {
                 }
                 return result
             }
-            val items = ImmutableList.builder<MediaItem>().add(liveItem())
+            if (parentId == LIVE_FOLDER_ID) {
+                return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(liveItem()), params))
+            }
+            // Primera pestaña: la radio en directo; segunda: Favoritos (si hay sesión iniciada).
+            val items = ImmutableList.builder<MediaItem>().add(liveFolder())
             if (token() != null) items.add(favFolder())
             return Futures.immediateFuture(LibraryResult.ofItemList(items.build(), params))
         }
@@ -347,7 +364,16 @@ class PlaybackService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             mediaId: String
         ): ListenableFuture<LibraryResult<MediaItem>> =
-            Futures.immediateFuture(LibraryResult.ofItem(liveItem(), null))
+            Futures.immediateFuture(
+                LibraryResult.ofItem(
+                    when (mediaId) {
+                        LIVE_FOLDER_ID -> liveFolder()
+                        FAV_ID -> favFolder()
+                        else -> liveItem()
+                    },
+                    null
+                )
+            )
 
         // Cualquier petición de reproducir (tocar "SONORIA FM en directo", "Ok Google, pon SONORIA FM",
         // botón de play del móvil...) se convierte en: conectar con la emisión en directo.
@@ -534,6 +560,7 @@ class PlaybackService : MediaLibraryService() {
         private const val ROOT_ID = "root"
         const val LIVE_ID = "live"
         private const val FAV_ID = "favs"
+        private const val LIVE_FOLDER_ID = "livefolder"
         private const val CMD_LIKE = "com.sonoriafm.radio.LIKE"
         const val CMD_SLEEP = "com.sonoriafm.radio.SLEEP"
         private const val SYNC_EVERY_MS = 30_000L
