@@ -280,6 +280,16 @@ class PlaybackService : MediaLibraryService() {
                 .build()
         }
 
+        // Al abrir la app en Android Auto, la radio suena directamente (sin tener que buscar
+        // "en directo" entre las pestañas).
+        override fun onPostConnect(session: MediaSession, controller: MediaSession.ControllerInfo) {
+            val pkg = controller.packageName
+            val fromCar = pkg.contains("gearhead") || pkg.contains("projection") || pkg.contains("android.car") || pkg.contains("gms.car")
+            if (fromCar && !player.isPlaying && !resyncing && player.mediaItemCount == 0) {
+                main.post { resync() }
+            }
+        }
+
         override fun onCustomCommand(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
