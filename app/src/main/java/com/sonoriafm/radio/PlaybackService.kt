@@ -80,7 +80,7 @@ class PlaybackService : MediaLibraryService() {
         getSharedPreferences("sonoria", Context.MODE_PRIVATE).getString("token", null)
 
     private fun currentTrackId(): String? =
-        player.currentMediaItem?.mediaId?.removePrefix("fav:")?.substringBefore("@")?.takeIf { it != LIVE_ID && it != ROOT_ID }
+        player.currentMediaItem?.mediaId?.removePrefix("fav:")?.substringBefore("@")?.takeIf { it != LIVE_ID && it != ROOT_ID && !it.startsWith("cuna-") }
 
     private fun loadLikedIds() {
         val t = token() ?: return
@@ -109,6 +109,10 @@ class PlaybackService : MediaLibraryService() {
             return
         }
         val id = currentTrackId()
+        if (player.currentMediaItem?.mediaId?.startsWith("cuna-") == true) {
+            s.setCustomLayout(ImmutableList.of())
+            return
+        }
         val liked = id != null && likedIds.contains(id)
         val button = CommandButton.Builder(
             if (liked) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED

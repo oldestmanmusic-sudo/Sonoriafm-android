@@ -399,7 +399,7 @@ class MainActivity : Activity() {
 
     private fun currentTrackId(): String? {
         val id = controller?.currentMediaItem?.mediaId ?: return null
-        if (id == PlaybackService.LIVE_ID) return null
+        if (id == PlaybackService.LIVE_ID || id.startsWith("cuna-")) return null
         return id.substringBefore("@")
     }
 
