@@ -39,8 +39,19 @@ object RadioApi {
         "https://media.base44.com/images/public/6ace0c27732bbb0f4d7504e1/b5af580b8_generated_image.png"
 
     /** Pide la canción actual y las siguientes. Bloquea: llamar siempre fuera del hilo principal. */
+    /** Zona de emisión según el huso horario del móvil: la parrilla va en hora local. */
+    fun zone(): String {
+        val off = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000
+        return when {
+            off >= -60 -> "eu"
+            off > -300 -> "sa"
+            off == -300 -> "co"
+            else -> "mx"
+        }
+    }
+
     fun fetch(count: Int = 12, atMs: Long? = null): Schedule {
-        val body = JSONObject().put("count", count)
+        val body = JSONObject().put("count", count).put("zone", zone())
         if (atMs != null) body.put("at", atMs)
         val t0 = System.currentTimeMillis()
         val conn = URL(URL_NOW).openConnection() as HttpURLConnection
