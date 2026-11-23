@@ -101,13 +101,9 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    /** El corazón solo aparece si ya has iniciado sesión en la app del móvil. */
+    /** El corazón se muestra siempre (salvo en las cuñas); para que cuente hay que haber iniciado sesión en la app del móvil. */
     private fun updateLikeButton() {
         val s = session ?: return
-        if (token() == null) {
-            s.setCustomLayout(ImmutableList.of())
-            return
-        }
         val id = currentTrackId()
         if (player.currentMediaItem?.mediaId?.startsWith("cuna-") == true) {
             s.setCustomLayout(ImmutableList.of())
@@ -124,7 +120,17 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun likeCurrent() {
-        val t = token() ?: return
+        val t = token()
+        if (t == null) {
+            main.post {
+                android.widget.Toast.makeText(
+                    this,
+                    "Para dar me gusta, inicia sesión en la app SONORIA del móvil",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            return
+        }
         val id = currentTrackId() ?: return
         if (likedIds.contains(id)) return
         io.execute {
@@ -301,6 +307,8 @@ class PlaybackService : MediaLibraryService() {
         // "en directo" entre las pestañas).
         override fun onPostConnect(session: MediaSession, controller: MediaSession.ControllerInfo) {
             val pkg = controller.packageName
+            loadLikedIds()
+            main.post { updateLikeButton() }
             val fromCar = pkg.contains("gearhead") || pkg.contains("projection") || pkg.contains("android.car") || pkg.contains("gms.car")
             if (fromCar && !player.isPlaying && !resyncing && player.mediaItemCount == 0) {
                 main.post { resync() }
@@ -423,6 +431,10 @@ class PlaybackService : MediaLibraryService() {
     // ---- Sincronización con la emisión -------------------------------------------------------
 
     private val playerListener = object : Player.Listener {
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            updateLikeButton()
+        }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             lastTransition = System.currentTimeMillis()
