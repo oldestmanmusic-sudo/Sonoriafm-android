@@ -68,6 +68,8 @@ class MainActivity : Activity() {
     private var lastListedId: String? = null
     private lateinit var updateButton: Button
     private lateinit var loginPanel: LinearLayout
+    private lateinit var scrollView: ScrollView
+    private lateinit var loginLink: TextView
     private lateinit var emailInput: EditText
     private lateinit var passInput: EditText
     private lateinit var loginMsg: TextView
@@ -281,11 +283,23 @@ class MainActivity : Activity() {
         root.addView(controls, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(12) })
         root.addView(sleepView, LinearLayout.LayoutParams(match, wrap))
         root.addView(nextView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(6) })
+        loginLink = TextView(this).apply {
+            text = "Iniciar sesión para dar «me gusta»"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(pink)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, dp(4))
+            visibility = if (token == null) View.VISIBLE else View.GONE
+            setOnClickListener { showLogin() }
+        }
+        root.addView(loginLink, LinearLayout.LayoutParams(match, wrap))
         root.addView(loginPanel, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(20) })
         root.addView(updateButton, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(18) })
         root.addView(web)
 
         val scroll = ScrollView(this).apply {
+            scrollView = this
             isFillViewport = true
             setBackgroundColor(bg)
             addView(root)
@@ -488,6 +502,7 @@ class MainActivity : Activity() {
         val n = if (id != null) likeCounts[id] else null
         likeButton.text = (if (liked) "♥" else "♡") + (if (n != null && n > 0) " $n" else "")
         likeButton.setTextColor(if (liked) pink else Color.WHITE)
+        loginLink.visibility = if (token == null && loginPanel.visibility != View.VISIBLE) View.VISIBLE else View.GONE
     }
 
     // ---- "Me gusta" y sesión ------------------------------------------------------------------
@@ -515,6 +530,7 @@ class MainActivity : Activity() {
         loginPanel.visibility = View.VISIBLE
         loginMsg.visibility = if (message == null) View.GONE else View.VISIBLE
         loginMsg.text = message ?: ""
+        scrollView.post { scrollView.smoothScrollTo(0, loginPanel.top) }
     }
 
     private fun onLikeClicked() {
