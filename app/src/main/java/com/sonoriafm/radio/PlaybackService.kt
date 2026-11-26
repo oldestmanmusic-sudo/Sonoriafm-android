@@ -49,6 +49,7 @@ class PlaybackService : MediaLibraryService() {
     private var cutMediaId: String? = null
     private val likedIds = HashSet<String>()
     @Volatile private var favItems: List<MediaItem> = emptyList()
+    @Volatile private var topItems: List<MediaItem> = emptyList()
     private val sleepRunnable = Runnable { player.pause() }
 
     private fun serverNow() = System.currentTimeMillis() + clockOffset
@@ -80,7 +81,7 @@ class PlaybackService : MediaLibraryService() {
         getSharedPreferences("sonoria", Context.MODE_PRIVATE).getString("token", null)
 
     private fun currentTrackId(): String? =
-        player.currentMediaItem?.mediaId?.removePrefix("fav:")?.substringBefore("@")?.takeIf { it != LIVE_ID && it != ROOT_ID && !it.startsWith("cuna-") }
+        player.currentMediaItem?.mediaId?.removePrefix(FAV_PREFIX)?.removePrefix(TOP_PREFIX)?.substringBefore("@")?.takeIf { it != LIVE_ID && it != ROOT_ID && !it.startsWith("cuna-") }
 
     private fun loadLikedIds() {
         val t = token() ?: return
@@ -211,7 +212,7 @@ class PlaybackService : MediaLibraryService() {
             val cover = o.optString("cover_url", "")
             out.add(
                 MediaItem.Builder()
-                    .setMediaId("fav:" + o.getString("id"))
+                    .setMediaId(FAV_PREFIX + o.getString("id"))
                     .setUri(o.getString("audio_url"))
                     .setMediaMetadata(
                         MediaMetadata.Builder()
@@ -228,6 +229,49 @@ class PlaybackService : MediaLibraryService() {
         }
         return out
     }
+
+    /** Descarga el TOP 10 (es público: no hace falta iniciar sesión). */
+    private fun fetchTop(): List<MediaItem> {
+        val arr = RadioApi.topTen()
+        val out = ArrayList<MediaItem>()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val audio = if (o.isNull("audio_url")) "" else o.optString("audio_url", "")
+            if (audio.isEmpty()) continue
+            val cover = if (o.isNull("cover_url")) "" else o.optString("cover_url", "")
+            val position = out.size + 1
+            out.add(
+                MediaItem.Builder()
+                    .setMediaId(TOP_PREFIX + o.getString("id"))
+                    .setUri(audio)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle("$position. ${o.optString("title", "")}")
+                            .setArtist(o.optString("artist", ""))
+                            .setAlbumTitle("TOP 10")
+                            .setArtworkUri(Uri.parse(if (cover.isEmpty()) RadioApi.DEFAULT_COVER else cover))
+                            .setIsPlayable(true)
+                            .setIsBrowsable(false)
+                            .build()
+                    )
+                    .build()
+            )
+        }
+        return out
+    }
+
+    private fun topFolder(): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(TOP_ID)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle("TOP 10")
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                    .build()
+            )
+            .build()
 
     private fun favFolder(): MediaItem =
         MediaItem.Builder()
@@ -362,11 +406,24 @@ class PlaybackService : MediaLibraryService() {
                 }
                 return result
             }
+            if (parentId == TOP_ID) {
+                val result = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+                io.execute {
+                    try {
+                        val list = fetchTop()
+                        topItems = list
+                        result.set(LibraryResult.ofItemList(ImmutableList.copyOf(list), params))
+                    } catch (e: Exception) {
+                        result.set(LibraryResult.ofItemList(ImmutableList.of(), params))
+                    }
+                }
+                return result
+            }
             if (parentId == LIVE_FOLDER_ID) {
                 return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(liveItem()), params))
             }
-            // Primera pestaña: la radio en directo; segunda: Favoritos (si hay sesión iniciada).
-            val items = ImmutableList.builder<MediaItem>().add(liveFolder())
+            // Pestañas: la radio en directo, el TOP 10 y Favoritos (si hay sesión iniciada).
+            val items = ImmutableList.builder<MediaItem>().add(liveFolder()).add(topFolder())
             if (token() != null) items.add(favFolder())
             return Futures.immediateFuture(LibraryResult.ofItemList(items.build(), params))
         }
@@ -380,6 +437,7 @@ class PlaybackService : MediaLibraryService() {
                 LibraryResult.ofItem(
                     when (mediaId) {
                         LIVE_FOLDER_ID -> liveFolder()
+                        TOP_ID -> topFolder()
                         FAV_ID -> favFolder()
                         else -> liveItem()
                     },
@@ -398,13 +456,17 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
             val first = mediaItems.firstOrNull()?.mediaId
-            if (first != null && first.startsWith("fav:")) {
+            // Favoritas y TOP 10 son listas a la carta: suena la elegida y siguen las demás.
+            if (first != null && (first.startsWith(FAV_PREFIX) || first.startsWith(TOP_PREFIX))) {
+                val isTop = first.startsWith(TOP_PREFIX)
                 io.execute {
                     try {
-                        var list = favItems
-                        if (list.none { it.mediaId == first }) list = fetchFavorites().also { favItems = it }
+                        var list = if (isTop) topItems else favItems
+                        if (list.none { it.mediaId == first }) {
+                            list = if (isTop) fetchTop().also { topItems = it } else fetchFavorites().also { favItems = it }
+                        }
                         val idx = list.indexOfFirst { it.mediaId == first }.coerceAtLeast(0)
-                        if (list.isEmpty()) result.setException(IllegalStateException("sin favoritas"))
+                        if (list.isEmpty()) result.setException(IllegalStateException("lista vacía"))
                         else result.set(MediaSession.MediaItemsWithStartPosition(list, idx, 0L))
                     } catch (e: Exception) {
                         result.setException(e)
@@ -473,7 +535,10 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private fun isLive(): Boolean = player.currentMediaItem?.mediaId?.startsWith("fav:") != true
+    private fun isLive(): Boolean {
+        val id = player.currentMediaItem?.mediaId ?: return true
+        return !id.startsWith(FAV_PREFIX) && !id.startsWith(TOP_PREFIX)
+    }
 
     /** Vuelve a pedir la emisión y se coloca exactamente donde toca ahora. */
     private fun resync() {
@@ -577,6 +642,9 @@ class PlaybackService : MediaLibraryService() {
         const val LIVE_ID = "live"
         private const val FAV_ID = "favs"
         private const val LIVE_FOLDER_ID = "livefolder"
+        private const val TOP_ID = "top"
+        const val FAV_PREFIX = "fav:"
+        const val TOP_PREFIX = "top:"
         private const val CMD_LIKE = "com.sonoriafm.radio.LIKE"
         const val CMD_SLEEP = "com.sonoriafm.radio.SLEEP"
         private const val SYNC_EVERY_MS = 30_000L

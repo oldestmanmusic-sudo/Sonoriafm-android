@@ -1,5 +1,6 @@
 package com.sonoriafm.radio
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -105,6 +106,21 @@ object RadioApi {
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             return Pair(code, stream?.bufferedReader()?.use { it.readText() } ?: "")
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** El TOP 10 igual que en la web: las 10 canciones con más "me gusta". Bloquea: usar fuera del hilo principal. */
+    fun topTen(): JSONArray {
+        val conn = URL(
+            "https://base44.app/api/apps/6ace0c27732bbb0f4d7504e1/entities/Track?sort=-likes&limit=10"
+        ).openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 15_000
+            if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
+            return JSONArray(conn.inputStream.bufferedReader().use { it.readText() })
         } finally {
             conn.disconnect()
         }

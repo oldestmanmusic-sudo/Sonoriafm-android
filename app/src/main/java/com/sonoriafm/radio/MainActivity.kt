@@ -414,7 +414,7 @@ class MainActivity : Activity() {
     private fun currentTrackId(): String? {
         val id = controller?.currentMediaItem?.mediaId ?: return null
         if (id == PlaybackService.LIVE_ID || id.startsWith("cuna-")) return null
-        return id.substringBefore("@")
+        return id.removePrefix(PlaybackService.FAV_PREFIX).removePrefix(PlaybackService.TOP_PREFIX).substringBefore("@")
     }
 
     private fun onSleepClicked() {
@@ -459,7 +459,12 @@ class MainActivity : Activity() {
             return
         }
         val md = controller?.mediaMetadata
-        val name = listOfNotNull(md?.title?.toString(), md?.artist?.toString()).joinToString(" - ")
+        var title = md?.title?.toString()
+        // En el TOP 10 el título lleva delante el puesto ("1. "): no se comparte.
+        if (controller?.currentMediaItem?.mediaId?.startsWith(PlaybackService.TOP_PREFIX) == true) {
+            title = title?.substringAfter(". ")
+        }
+        val name = listOfNotNull(title, md?.artist?.toString()).joinToString(" - ")
         val text = "Estoy escuchando $name en SONORIA FM 🎧 https://sonoriafm.com/cancion/$id"
         startActivity(
             Intent.createChooser(
