@@ -75,7 +75,7 @@ class PlaybackService : MediaLibraryService() {
         updateLikeButton()
     }
 
-    // ---- "Me gusta" desde Android Auto: usa la sesión iniciada en la app del móvil ------------
+    // ---- Votos ("me gusta") desde Android Auto: con la sesión del móvil o sin cuenta -----------
 
     private fun token(): String? =
         getSharedPreferences("sonoria", Context.MODE_PRIVATE).getString("token", null)
@@ -84,10 +84,9 @@ class PlaybackService : MediaLibraryService() {
         player.currentMediaItem?.mediaId?.removePrefix(FAV_PREFIX)?.removePrefix(TOP_PREFIX)?.substringBefore("@")?.takeIf { it != LIVE_ID && it != ROOT_ID && !it.startsWith("cuna-") }
 
     private fun loadLikedIds() {
-        val t = token() ?: return
         io.execute {
             try {
-                val (code, text) = RadioApi.post("functions/likeTrack", JSONObject().put("action", "status"), t)
+                val (code, text) = RadioApi.likes(this, JSONObject().put("action", "status"))
                 if (code in 200..299) {
                     val arr = JSONObject(text).optJSONArray("likedIds")
                     main.post {
@@ -102,7 +101,7 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    /** El corazón se muestra siempre (salvo en las cuñas); para que cuente hay que haber iniciado sesión en la app del móvil. */
+    /** El corazón se muestra siempre (salvo en las cuñas). No hace falta cuenta para votar. */
     private fun updateLikeButton() {
         val s = session ?: return
         val id = currentTrackId()
@@ -121,31 +120,30 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun likeCurrent() {
-        val t = token()
-        if (t == null) {
-            main.post {
-                android.widget.Toast.makeText(
-                    this,
-                    "Para dar me gusta, inicia sesión en la app SONORIA del móvil",
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
-            }
-            return
-        }
         val id = currentTrackId() ?: return
         if (likedIds.contains(id)) return
         io.execute {
             try {
-                val (code, _) = RadioApi.post("functions/likeTrack", JSONObject().put("trackId", id), t)
-                if (code in 200..299) main.post {
-                    likedIds.add(id)
-                    updateLikeButton()
+                val (code, _) = RadioApi.likes(this, JSONObject().put("trackId", id))
+                main.post {
+                    if (code in 200..299) {
+                        likedIds.add(id)
+                        updateLikeButton()
+                    } else {
+                        toast(
+                            if (code == 429) "Hoy se ha llegado al tope de votos sin cuenta. Prueba mañana."
+                            else "No se ha podido contar el voto"
+                        )
+                    }
                 }
             } catch (e: Exception) {
-                // Sin conexión: no se cuenta.
+                main.post { toast("Sin conexión: el voto no se ha contado") }
             }
         }
     }
+
+    private fun toast(text: String) =
+        android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_LONG).show()
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
@@ -202,8 +200,8 @@ class PlaybackService : MediaLibraryService() {
 
     /** Descarga la lista de favoritas (necesita la sesión iniciada en la app). */
     private fun fetchFavorites(): List<MediaItem> {
-        val t = token() ?: return emptyList()
-        val (code, text) = RadioApi.post("functions/likeTrack", JSONObject().put("action", "list"), t)
+        if (token() == null) return emptyList()
+        val (code, text) = RadioApi.likes(this, JSONObject().put("action", "list"))
         if (code !in 200..299) return emptyList()
         val arr = JSONObject(text).optJSONArray("tracks") ?: return emptyList()
         val out = ArrayList<MediaItem>()

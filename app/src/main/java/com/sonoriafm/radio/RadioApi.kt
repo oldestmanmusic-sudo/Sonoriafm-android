@@ -1,5 +1,6 @@
 package com.sonoriafm.radio
 
+import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -109,6 +110,35 @@ object RadioApi {
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** Código al azar de este móvil, para poder votar sin cuenta (un voto por canción). Se crea al votar por primera vez. */
+    @Synchronized
+    private fun voterId(context: Context, create: Boolean): String? {
+        val prefs = context.getSharedPreferences("sonoria", Context.MODE_PRIVATE)
+        val saved = prefs.getString("voter_id", null)
+        if (saved != null || !create) return saved
+        val chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+        val random = java.security.SecureRandom()
+        val id = String(CharArray(32) { chars[random.nextInt(chars.length)] })
+        prefs.edit().putString("voter_id", id).apply()
+        return id
+    }
+
+    /**
+     * Llama a la función de votos: con la sesión si la hay y, si no, como oyente sin cuenta.
+     * Si la sesión ha caducado, la borra y repite sin cuenta. Bloquea: usar fuera del hilo principal.
+     */
+    fun likes(context: Context, body: JSONObject): Pair<Int, String> {
+        val prefs = context.getSharedPreferences("sonoria", Context.MODE_PRIVATE)
+        voterId(context, create = body.has("trackId"))?.let { body.put("did", it) }
+        val token = prefs.getString("token", null)
+        var result = post("functions/likeTrack", body, token)
+        if (result.first == 401 && token != null) {
+            prefs.edit().remove("token").apply()
+            result = post("functions/likeTrack", body, null)
+        }
+        return result
     }
 
     /** El TOP 10 igual que en la web: las 10 canciones con más "me gusta". Bloquea: usar fuera del hilo principal. */

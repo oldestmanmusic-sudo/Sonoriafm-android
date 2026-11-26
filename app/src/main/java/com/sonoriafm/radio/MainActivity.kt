@@ -80,7 +80,6 @@ class MainActivity : Activity() {
     private val likedIds = HashSet<String>()
     private val likeCounts = HashMap<String, Long>()
     private var lastCover: String? = null
-    private var pendingLike = false
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -179,7 +178,7 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
 
-        // Panel para iniciar sesión (hace falta para dar "me gusta", igual que en la web).
+        // Panel para iniciar sesión (opcional: sirve para guardar las favoritas; votar no la necesita).
         loginPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -187,7 +186,7 @@ class MainActivity : Activity() {
             setPadding(dp(18), dp(16), dp(18), dp(16))
         }
         loginPanel.addView(TextView(this).apply {
-            text = "Inicia sesión para dar «me gusta»"
+            text = "Inicia sesión para guardar tus favoritas"
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
@@ -231,10 +230,7 @@ class MainActivity : Activity() {
             setTextColor(grey)
             gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, 0)
-            setOnClickListener {
-                pendingLike = false
-                loginPanel.visibility = View.GONE
-            }
+            setOnClickListener { loginPanel.visibility = View.GONE }
         }
         loginPanel.addView(emailInput)
         loginPanel.addView(passInput)
@@ -284,7 +280,7 @@ class MainActivity : Activity() {
         root.addView(sleepView, LinearLayout.LayoutParams(match, wrap))
         root.addView(nextView, LinearLayout.LayoutParams(match, wrap).apply { topMargin = dp(6) })
         loginLink = TextView(this).apply {
-            text = "Iniciar sesión para dar «me gusta»"
+            text = "Iniciar sesión para guardar tus favoritas"
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(pink)
@@ -316,7 +312,7 @@ class MainActivity : Activity() {
         coverView.setImageResource(R.drawable.logo_sonoria)
         handleLoginLink(intent)
         checkForUpdate()
-        if (token != null) loadLikedIds()
+        loadLikedIds()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -325,7 +321,7 @@ class MainActivity : Activity() {
         handleLoginLink(intent)
     }
 
-    /** Vuelta del inicio de sesión con Google: guarda la sesión y carga tus «me gusta». */
+    /** Vuelta del inicio de sesión con Google: guarda la sesión y carga tus votos. */
     private fun handleLoginLink(i: Intent?) {
         val data = i?.data ?: return
         if (data.scheme != "sonoriafm" || data.host != "login") return
@@ -335,9 +331,7 @@ class MainActivity : Activity() {
         prefs.edit().putString("token", t).apply()
         loginPanel.visibility = View.GONE
         Toast.makeText(this, "Sesión iniciada", Toast.LENGTH_SHORT).show()
-        val again = pendingLike
-        pendingLike = false
-        loadLikedIds { if (again) onLikeClicked() }
+        loadLikedIds()
     }
 
     private fun circleButton(text: String, sizeDp: Int, color: Int, sp: Float) = TextView(this).apply {
@@ -510,7 +504,7 @@ class MainActivity : Activity() {
         loginLink.visibility = if (token == null && loginPanel.visibility != View.VISIBLE) View.VISIBLE else View.GONE
     }
 
-    // ---- "Me gusta" y sesión ------------------------------------------------------------------
+    // ---- Votos y sesión ------------------------------------------------------------------
 
     private fun call(path: String, body: JSONObject, auth: String?): Pair<Int, String> {
         val conn = URL("https://base44.app/api/apps/$APP_ID/$path").openConnection() as HttpURLConnection
@@ -544,34 +538,26 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Pulsa play y espera a que suene una canción", Toast.LENGTH_SHORT).show()
             return
         }
-        val t = token
-        if (t == null) {
-            pendingLike = true
-            showLogin()
-            return
-        }
         if (likedIds.contains(id)) {
-            Toast.makeText(this, "Ya te gustaba esta canción", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Ya has votado esta canción", Toast.LENGTH_SHORT).show()
             return
         }
         thread {
             try {
-                val (code, text) = call("functions/likeTrack", JSONObject().put("trackId", id), t)
-                if (code in 200..299) {
-                    val json = JSONObject(text)
-                    runOnUiThread {
+                val (code, text) = RadioApi.likes(this, JSONObject().put("trackId", id))
+                val likes = if (code in 200..299) JSONObject(text).optLong("likes", 0) else 0L
+                runOnUiThread {
+                    token = prefs.getString("token", null)
+                    if (code in 200..299) {
                         likedIds.add(id)
-                        likeCounts[id] = json.optLong("likes", 0)
-                        refresh()
+                        likeCounts[id] = likes
+                        Toast.makeText(this, "¡Voto contado!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val msg = if (code == 429) "Hoy se ha llegado al tope de votos sin cuenta. Prueba mañana o inicia sesión."
+                        else "No se ha podido contar el voto. Prueba otra vez."
+                        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
                     }
-                } else {
-                    // La sesión ha caducado: se pide entrar otra vez.
-                    runOnUiThread {
-                        token = null
-                        prefs.edit().remove("token").apply()
-                        pendingLike = true
-                        showLogin("Tu sesión ha caducado. Entra otra vez.")
-                    }
+                    refresh()
                 }
             } catch (e: Exception) {
                 runOnUiThread { Toast.makeText(this, "Sin conexión", Toast.LENGTH_SHORT).show() }
@@ -601,9 +587,7 @@ class MainActivity : Activity() {
                         loginPanel.visibility = View.GONE
                         loginSubmit.isEnabled = true
                         loginSubmit.text = "Entrar"
-                        val again = pendingLike
-                        pendingLike = false
-                        loadLikedIds { if (again) onLikeClicked() }
+                        loadLikedIds()
                     }
                 } else {
                     runOnUiThread {
@@ -622,24 +606,18 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun loadLikedIds(done: (() -> Unit)? = null) {
-        val t = token ?: return
+    private fun loadLikedIds() {
         thread {
             try {
-                val (code, text) = call("functions/likeTrack", JSONObject().put("action", "status"), t)
-                if (code in 200..299) {
-                    val arr = JSONObject(text).optJSONArray("likedIds")
-                    runOnUiThread {
+                val (code, text) = RadioApi.likes(this, JSONObject().put("action", "status"))
+                val arr = if (code in 200..299) JSONObject(text).optJSONArray("likedIds") else null
+                runOnUiThread {
+                    token = prefs.getString("token", null)
+                    if (code in 200..299) {
                         likedIds.clear()
                         if (arr != null) for (i in 0 until arr.length()) likedIds.add(arr.getString(i))
-                        refresh()
-                        done?.invoke()
                     }
-                } else {
-                    runOnUiThread {
-                        token = null
-                        prefs.edit().remove("token").apply()
-                    }
+                    refresh()
                 }
             } catch (e: Exception) {
                 // Sin conexión: se reintenta al abrir la app otra vez.
