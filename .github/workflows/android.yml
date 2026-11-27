@@ -2,7 +2,7 @@ name: Compilar app SONORIA FM
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'prueba/**']
   workflow_dispatch:
 
 permissions:
@@ -33,6 +33,8 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publicar versión (la app se actualiza desde aquí)
+        # Las ramas "prueba/..." solo comprueban que compila: no publican nada.
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

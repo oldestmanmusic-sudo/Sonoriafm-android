@@ -19,6 +19,7 @@ import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
 import org.json.JSONObject
 import com.google.common.collect.ImmutableList
@@ -47,6 +48,7 @@ class PlaybackService : MediaLibraryService() {
     private var appending = false
     private var resyncing = false
     private var cutMediaId: String? = null
+    private var commandsForLive = true
     private val likedIds = HashSet<String>()
     @Volatile private var favItems: List<MediaItem> = emptyList()
     @Volatile private var topItems: List<MediaItem> = emptyList()
@@ -312,6 +314,47 @@ class PlaybackService : MediaLibraryService() {
             )
             .build()
 
+    // ---- Botones permitidos: el directo no se salta; TOP 10 y Favoritos sí ---------------------
+
+    private fun sessionCommands(): SessionCommands =
+        MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+            .buildUpon()
+            .add(SessionCommand(CMD_LIKE, Bundle.EMPTY))
+            .add(SessionCommand(CMD_SLEEP, Bundle.EMPTY))
+            .build()
+
+    /** Nunca se adelanta ni atrasa dentro de una canción. Cambiar de canción, solo fuera del directo. */
+    private fun playerCommandsFor(live: Boolean): Player.Commands {
+        val commands = Player.Commands.Builder()
+            .addAllCommands()
+            .removeAll(
+                Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_BACK,
+                Player.COMMAND_SEEK_FORWARD
+            )
+        if (live) {
+            commands.removeAll(
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_MEDIA_ITEM
+            )
+        }
+        return commands.build()
+    }
+
+    /** Al pasar del directo a una lista (o al revés) se avisa a Android Auto, al móvil y a la notificación. */
+    private fun updatePlayerCommands() {
+        val s = session ?: return
+        val live = isLive()
+        if (live == commandsForLive) return
+        commandsForLive = live
+        for (controller in s.connectedControllers) {
+            s.setAvailableCommands(controller, sessionCommands(), playerCommandsFor(live))
+        }
+    }
+
     // ---- Lo que ven y piden Android Auto y los controladores ----------------------------------
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
@@ -320,28 +363,9 @@ class PlaybackService : MediaLibraryService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
-            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
-                .buildUpon()
-                .add(SessionCommand(CMD_LIKE, Bundle.EMPTY))
-                .add(SessionCommand(CMD_SLEEP, Bundle.EMPTY))
-                .build()
-            // Es una emisión en directo: sin adelantar, atrasar ni saltar de canción.
-            val playerCommands = Player.Commands.Builder()
-                .addAllCommands()
-                .removeAll(
-                    Player.COMMAND_SEEK_TO_NEXT,
-                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_TO_PREVIOUS,
-                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_TO_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_BACK,
-                    Player.COMMAND_SEEK_FORWARD
-                )
-                .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                .setAvailablePlayerCommands(playerCommands)
-                .setAvailableSessionCommands(commands)
+                .setAvailablePlayerCommands(playerCommandsFor(isLive()))
+                .setAvailableSessionCommands(sessionCommands())
                 .build()
         }
 
@@ -498,6 +522,7 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             lastTransition = System.currentTimeMillis()
+            updatePlayerCommands()
             updateLikeButton()
             scheduleCut()
             trimPlayed()
